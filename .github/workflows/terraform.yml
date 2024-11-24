@@ -17,7 +17,7 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   # S3 bucket for the Terraform state
-  BUCKET_TF_STATE: ${{ secrets.BUCKET_TF_STATE}}
+  BUCKET_TF_STATE: ${{ secrets.BUCKET_TF_STATE }}
   AWS_REGION: us-west-1
   EKS_CLUSTER: batman-eks
 
@@ -36,8 +36,15 @@ jobs:
 
       - name: Setup Terraform with specified version on the runner
         uses: hashicorp/setup-terraform@v2
-        #with:
-        #  terraform_version: 1.6.3
+        # with:
+        #   terraform_version: 1.6.3
+
+      # Debug step to verify AWS secrets are loaded correctly
+      - name: Debug AWS Credentials (check if secrets are available)
+        run: |
+          echo "AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID"
+          echo "AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY"
+          echo "BUCKET_TF_STATE: $BUCKET_TF_STATE"
 
       - name: Terraform init
         id: init
