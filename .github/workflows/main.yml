@@ -1,4 +1,5 @@
 name: "Batman IAC"
+
 on:
   push:
     branches:
@@ -13,10 +14,13 @@ on:
       - terraform/**
 
 env:
+  # Credentials for deployment to AWS
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  # S3 bucket for the Terraform state
   BUCKET_TF_STATE: ${{ secrets.BUCKET_TF_STATE }}
-  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_REGION: us-west-1
+  EKS_CLUSTER: batman-eks
 
 jobs:
   terraform:
@@ -31,25 +35,20 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Debug Environment Variables
+      - name: Setup Terraform with specified version on the runner
+        uses: hashicorp/setup-terraform@v2
+
+      # Debug step to verify AWS secrets are loaded correctly
+      - name: Debug AWS Credentials (check if secrets are available)
         run: |
+          echo "AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID"
+          echo "AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY"
           echo "BUCKET_TF_STATE: $BUCKET_TF_STATE"
           echo "AWS_REGION: $AWS_REGION"
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
       - name: Terraform init
         id: init
-        run: |
-          terraform init \
-            -backend-config="bucket=${{ env.BUCKET_TF_STATE }}" \
-            -backend-config="key=terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}"
+        run: terraform init -backend-config="bucket=$BUCKET_TF_STATE" -backend-config="key=terraform.tfstate" -backend-config="region=$AWS_REGION"
 
       - name: Terraform format
         id: fmt
@@ -62,13 +61,29 @@ jobs:
       - name: Terraform plan
         id: plan
         run: terraform plan -no-color -input=false -out planfile
+        continue-on-error: true
+
+      - name: Terraform plan status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
 
       - name: Terraform Apply
         id: apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -input=false -parallelism=1 planfile
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }} # Ensure AWS_REGION is set correctly
+
       - name: Get Kube config file
         id: getconfig
         if: steps.apply.outcome == 'success'
-        run: aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name batman-eks
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER }}
+
+      - name: Install Ingress controller
+        if: steps.apply.outcome == 'success'
+        run: kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.1.3/deploy/static/provider/aws/deploy.yaml
