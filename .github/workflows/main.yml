@@ -1,4 +1,4 @@
-name: "Batman IAC"
+name: "Vprofile IAC"
 
 on:
   push:
@@ -19,8 +19,8 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   # S3 bucket for the Terraform state
   BUCKET_TF_STATE: ${{ secrets.BUCKET_TF_STATE }}
-  AWS_REGION: us-west-1
-  EKS_CLUSTER: batman-eks
+  AWS_REGION: us-east-2
+  EKS_CLUSTER: vprofile-eks
 
 jobs:
   terraform:
@@ -37,16 +37,9 @@ jobs:
 
       - name: Setup Terraform with specified version on the runner
         uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: "1.9.8" # Specify the exact version to use
-
-      # Debug step to verify AWS secrets are loaded correctly
-      - name: Debug AWS Credentials (check if secrets are available)
-        run: |
-          echo "AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID"
-          echo "AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY"
-          echo "BUCKET_TF_STATE: $BUCKET_TF_STATE"
-          echo "AWS_REGION: $AWS_REGION"
+        # Optional: Specify terraform version here
+        # with:
+        #   terraform_version: 1.6.3
 
       - name: Terraform init
         id: init
@@ -70,7 +63,7 @@ jobs:
         run: exit 1
 
       - name: Terraform Apply
-        id: apply
+        id: apple
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -input=false -parallelism=1 planfile
 
@@ -79,13 +72,13 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }} # Ensure AWS_REGION is set correctly
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Get Kube config file
         id: getconfig
-        if: steps.apply.outcome == 'success'
+        if: steps.apple.outcome == 'success'
         run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER }}
 
       - name: Install Ingress controller
-        if: steps.apply.outcome == 'success'
+        if: steps.apple.outcome == 'success' && steps.getconfig.outcome == 'success'
         run: kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.1.3/deploy/static/provider/aws/deploy.yaml
